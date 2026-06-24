@@ -1,0 +1,93 @@
+{
+  "users": [
+    {
+      "id": "google_mock_user_4801",
+      "name": "Demo Citizen",
+      "email": "demo@nagarsetu.org",
+      "picture": "https://ui-avatars.com/api/?name=Demo+Citizen&background=6366f1&color=fff",
+      "phone": "",
+      "points": 0,
+      "badgeTier": "bronze",
+      "ward": "Unknown Ward",
+      "isAgency": false
+    },
+    {
+      "id": "google_mock_user_4476",
+      "name": "Demo Citizen",
+      "email": "demo@nagarsetu.org",
+      "picture": "https://ui-avatars.com/api/?name=Demo+Citizen&background=6366f1&color=fff",
+      "phone": "",
+      "points": 0,
+      "badgeTier": "bronze",
+      "ward": "Unknown Ward",
+      "isAgency": false
+    },
+    {
+      "id": "google_mock_user_4879",
+      "name": "Demo Citizen",
+      "email": "demo@nagarsetu.org",
+      "picture": "https://ui-avatars.com/api/?name=Demo+Citizen&background=6366f1&color=fff",
+      "phone": "",
+      "points": 0,
+      "badgeTier": "bronze",
+      "ward": "Unknown Ward",
+      "isAgency": false
+    },
+    {
+      "id": "google_mock_user_8076",
+      "name": "Demo Citizen",
+      "email": "demo@nagarsetu.org",
+      "picture": "https://ui-avatars.com/api/?name=Demo+Citizen&background=6366f1&color=fff",
+      "phone": "",
+      "points": 0,
+      "badgeTier": "bronze",
+      "ward": "Unknown Ward",
+      "isAgency": false
+    },
+    {
+      "id": "google_mock_user_4510",
+      "name": "Demo Citizen",
+      "email": "demo@nagarsetu.org",
+      "picture": "https://ui-avatars.com/api/?name=Demo+Citizen&background=6366f1&color=fff",
+      "phone": "",
+      "points": 0,
+      "badgeTier": "bronze",
+      "ward": "Unknown Ward",
+      "isAgency": false
+    }
+  ],
+  "agencies": [
+    {
+      "id": "agency_pwd",
+      "name": "Public Works Department (PWD)",
+      "ward": "All Wards",
+      "category": "Roads & Potholes",
+      "userId": "agency_pwd_user"
+    },
+    {
+      "id": "agency_waste",
+      "name": "Municipal Solid Waste Management",
+      "ward": "All Wards",
+      "category": "Garbage & Sanitation",
+      "userId": "agency_waste_user"
+    },
+    {
+      "id": "agency_light",
+      "name": "Street Light Division",
+      "ward": "All Wards",
+      "category": "Street Lights",
+      "userId": "agency_light_user"
+    },
+    {
+      "id": "agency_water",
+      "name": "Water Supply and Sewerage Board",
+      "ward": "All Wards",
+      "category": "Sewage & Water Leak",
+      "userId": "agency_water_user"
+    }
+  ],
+  "issues": [],
+  "reports": [],
+  "verifications": [],
+  "whatsappMessages": []
+}

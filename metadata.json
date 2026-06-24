@@ -1,0 +1,6 @@
+{
+  "name": "NagarSetu",
+  "description": "Hyperlocal civic problem solver where citizens verify reports and fixes, creating a transparent, game-proof public accountability dashboard.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
