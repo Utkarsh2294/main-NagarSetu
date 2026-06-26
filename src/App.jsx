@@ -1,5 +1,6 @@
 import { useState, useEffect, Suspense, lazy } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import GoogleLogin from "./components/GoogleLogin";
@@ -92,83 +93,87 @@ export default function App() {
       alert("Failed to connect to backend server. Make sure 'npm run dev' is still running!");
     }
   };
-  return <div className="flex flex-col min-h-screen bg-slate-950 font-sans text-slate-200">
-      {/* --- Admin routes (separate layout, no citizen Navbar/Footer) --- */}
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route path="/admin" element={
-            <AdminRoute>
-              <AdminLayout />
-            </AdminRoute>
-          }>
-            <Route index element={<AdminDashboardPage />} />
-            <Route path="dashboard" element={<AdminDashboardPage />} />
-            <Route path="issues/:id" element={<IssueDetailPage />} />
-            <Route path="workers" element={<WorkerManagementPage />} />
-            <Route path="leaderboard" element={<WorkerLeaderboardPage />} />
-            <Route path="citizen-leaderboard" element={<CitizenLeaderboardPageAdmin />} />
-          </Route>
-        </Routes>
-      </Suspense>
+  return (
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || "placeholder-client-id"}>
+      <div className="flex flex-col min-h-screen bg-slate-950 font-sans text-slate-200">
+        {/* --- Admin routes (separate layout, no citizen Navbar/Footer) --- */}
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/admin/login" element={<AdminLoginPage />} />
+            <Route path="/admin" element={
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            }>
+              <Route index element={<AdminDashboardPage />} />
+              <Route path="dashboard" element={<AdminDashboardPage />} />
+              <Route path="issues/:id" element={<IssueDetailPage />} />
+              <Route path="workers" element={<WorkerManagementPage />} />
+              <Route path="leaderboard" element={<WorkerLeaderboardPage />} />
+              <Route path="citizen-leaderboard" element={<CitizenLeaderboardPageAdmin />} />
+            </Route>
+          </Routes>
+        </Suspense>
 
-      {/* --- Citizen routes (original layout, unchanged) --- */}
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/admin/*" element={null} />
-          <Route path="*" element={<>
-            <Navbar
-              user={currentUser}
-              onLoginClick={() => setShowLoginModal(true)}
-              onLogoutClick={() => {
-                setCurrentUser(null);
-                localStorage.removeItem("citizen_id");
-              }}
-            />
-            
-            <main className="flex-1 flex flex-col">
+        {/* --- Citizen routes (original layout, unchanged) --- */}
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/admin/*" element={null} />
+            <Route path="*" element={<>
+              <Navbar
+                user={currentUser}
+                onLoginClick={() => setShowLoginModal(true)}
+                onLogoutClick={() => {
+                  setCurrentUser(null);
+                  localStorage.removeItem("citizen_id");
+                }}
+              />
+              
+              <main className="flex-1 flex flex-col">
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/map" element={<MapPage currentUser={currentUser} onLoginClick={() => setShowLoginModal(true)} />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/leaderboard" element={<LeaderboardPage currentUserId={currentUser?.id || null} />} />
+                  <Route path="/verify" element={<VerifyPage currentUser={currentUser} />} />
+                  <Route path="/whatsapp" element={<WhatsAppPage />} />
+                  <Route path="/about" element={<AboutPage />} />
+                  <Route path="/contact" element={<ContactPage />} />
+                  <Route path="/authorities" element={<AuthoritiesPage />} />
+                </Routes>
+              </main>
+
               <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/map" element={<MapPage currentUser={currentUser} onLoginClick={() => setShowLoginModal(true)} />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/leaderboard" element={<LeaderboardPage currentUserId={currentUser?.id || null} />} />
-                <Route path="/verify" element={<VerifyPage currentUser={currentUser} />} />
-                <Route path="/whatsapp" element={<WhatsAppPage />} />
-                <Route path="/about" element={<AboutPage />} />
-                <Route path="/contact" element={<ContactPage />} />
-                <Route path="/authorities" element={<AuthoritiesPage />} />
+                <Route path="/map" element={null} />
+                <Route path="*" element={<Footer />} />
               </Routes>
-            </main>
 
-            <Routes>
-              <Route path="/map" element={null} />
-              <Route path="*" element={<Footer />} />
-            </Routes>
-
-            {showLoginModal && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-                <div className="glass-panel p-8 rounded-3xl max-w-sm w-full relative">
-                  <button
-                    onClick={() => setShowLoginModal(false)}
-                    className="absolute top-4 right-4 text-slate-400 hover:text-white"
-                  >
-                    ✕
-                  </button>
-                  <div className="text-center mb-6">
-                    <h3 className="text-2xl font-bold text-white font-display mb-2">Sign In</h3>
-                    <p className="text-sm text-slate-400">Join NagarSetu to report issues and earn points.</p>
+              {showLoginModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+                  <div className="glass-panel p-8 rounded-3xl max-w-sm w-full relative">
+                    <button
+                      onClick={() => setShowLoginModal(false)}
+                      className="absolute top-4 right-4 text-slate-400 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                    <div className="text-center mb-6">
+                      <h3 className="text-2xl font-bold text-white font-display mb-2">Sign In</h3>
+                      <p className="text-sm text-slate-400">Join NagarSetu to report issues and earn points.</p>
+                    </div>
+                    
+                    <GoogleLogin onLoginSuccess={handleLoginSuccess} />
+                    
+                    <p className="text-[10px] text-slate-500 text-center mt-6">
+                      By continuing, you agree to NagarSetu's Terms of Service and Privacy Policy.
+                    </p>
                   </div>
-                  
-                  <GoogleLogin onLoginSuccess={handleLoginSuccess} />
-                  
-                  <p className="text-[10px] text-slate-500 text-center mt-6">
-                    By continuing, you agree to NagarSetu's Terms of Service and Privacy Policy.
-                  </p>
                 </div>
-              </div>
-            )}
-          </>} />
-        </Routes>
-      </Suspense>
-    </div>;
+              )}
+            </>} />
+          </Routes>
+        </Suspense>
+      </div>
+    </GoogleOAuthProvider>
+  );
 }
