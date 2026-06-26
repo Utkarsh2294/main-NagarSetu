@@ -4,7 +4,9 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import { User, Agency, Issue, Report, Verification, WhatsappMessage } from "./models.js";
+import { User, Agency, Issue, Report, Verification, WhatsappMessage, Notification } from "./models.js";
+import { mountAdmin, configureMediaClassifier } from "./admin/server/index.js";
+import { seedAdminData } from "./admin/server/seed.js";
 
 dotenv.config();
 
@@ -133,22 +135,20 @@ const AGENCY_BY_CATEGORY = {
 };
 
 const DEPRECATED_GEMINI_MODELS = new Map([
-  ["gemini-1.5-flash", "gemini-3.5-flash"],
-  ["gemini-1.5-flash-latest", "gemini-3.5-flash"],
-  ["gemini-1.5-pro", "gemini-3.5-flash"],
-  ["gemini-1.5-pro-latest", "gemini-3.5-flash"],
-  ["gemini-2.0-flash", "gemini-3.5-flash"],
-  ["gemini-2.0-flash-lite", "gemini-3.5-flash"],
-  ["gemini-pro", "gemini-3.5-flash"],
-  ["gemini-pro-vision", "gemini-3.5-flash"]
+  ["gemini-1.5-flash", "gemini-2.0-flash"],
+  ["gemini-1.5-flash-latest", "gemini-2.0-flash"],
+  ["gemini-1.5-pro", "gemini-2.0-flash"],
+  ["gemini-1.5-pro-latest", "gemini-2.0-flash"],
+  ["gemini-pro", "gemini-2.0-flash"],
+  ["gemini-pro-vision", "gemini-2.0-flash"]
 ]);
 
 function normalizeGeminiModel(model) {
   const normalized = String(model || "").trim();
-  return DEPRECATED_GEMINI_MODELS.get(normalized) || normalized || "gemini-3.5-flash";
+  return DEPRECATED_GEMINI_MODELS.get(normalized) || normalized || "gemini-2.0-flash";
 }
 
-const GEMINI_MODEL = normalizeGeminiModel(process.env.GEMINI_MODEL || process.env.GOOGLE_GENAI_MODEL || "gemini-3.5-flash");
+const GEMINI_MODEL = normalizeGeminiModel(process.env.GEMINI_MODEL || process.env.GOOGLE_GENAI_MODEL || "gemini-2.0-flash");
 
 function getMediaTypeFromMime(mimeType) {
   if (!mimeType) return "image";
@@ -319,6 +319,39 @@ function normalizeClassification(classification, fallback) {
   return normalized;
 }
 
+// Shared citizen-report prompt (also surfaced to the admin media classifier so the
+// worker proof-of-work flow reuses the same fake-detection language, §8.1).
+function buildCitizenReportPrompt(mediaWord, isVideo) {
+  return `Analyze this citizen-reported civic issue ${mediaWord}.
+            Check whether it shows a genuine civic issue (like a pothole, garbage dump, broken street light, sewage leak, etc) or whether it is irrelevant, unrelated, staged, or fake (like an X-ray, medical scan, selfie, screenshot, document, animal, person-only image, indoor object, etc).
+            ${isVideo ? "This is a short video clip - base your judgment on what is shown across the whole clip, not just one frame." : ""}
+            If it is completely irrelevant or fake, set "isFake" to true, set "category" to "Invalid / Non-civic", set "suggested_agency" to "agency_pwd", and in the "description" field explicitly state what the image actually is (for example, "This appears to be an X-ray image") and explain why it is not a civic issue. Set "fakeConfidence" to a number between 0 and 1.
+
+            If genuine, classify into:
+            - "Roads & Potholes"
+            - "Garbage & Sanitation"
+            - "Street Lights"
+            - "Sewage & Water Leak"
+
+            Assess severity (High, Medium, Low).
+            Determine agency from:
+            - "agency_pwd" (for Roads & Potholes)
+            - "agency_waste" (for Garbage & Sanitation)
+            - "agency_light" (for Street Lights)
+            - "agency_water" (for Sewage & Water Leak)
+
+            Return ONLY structured JSON adhering strictly to:
+            {
+              "isFake": boolean,
+              "fakeConfidence": number,
+              "category": string,
+              "severity": "High" | "Medium" | "Low",
+              "suggested_agency": string,
+              "confidence": number,
+              "description": string
+            }`;
+}
+
 async function seedAgencies() {
   const agencies = [
     { id: "agency_pwd", name: "Public Works Department (PWD)", ward: "All Wards", category: "Roads & Potholes", userId: "agency_pwd_user" },
@@ -338,6 +371,23 @@ async function seedAgencies() {
   }
 }
 seedAgencies();
+
+// --- Admin module wiring -----------------------------------------------------
+// Expose the existing Gemini stack to the admin worker-proof classifier (§8.1),
+// mount all /api/admin routes, and seed demo admins + workers (§9).
+configureMediaClassifier({
+  getGeminiClient,
+  GEMINI_MODEL,
+  generateGeminiContentWithRetry,
+  normalizeClassification,
+  normalizeGeminiJson,
+  getGeminiText,
+  getMimeFromExtension,
+  promptForReport: () => buildCitizenReportPrompt("photo", false)
+});
+mountAdmin(app);
+seedAdminData();
+
 
 // ---- Upload endpoint: accepts either a photo or a video --------------------
 // Detects media type from the data URL's mime prefix (e.g. "data:video/mp4;base64,...")
@@ -499,6 +549,37 @@ app.get("/api/user/:uid", async (req, res) => {
   }
 });
 
+app.get("/api/user/:uid/votes", async (req, res) => {
+  try {
+    const votes = await Verification.find({ userId: req.params.uid });
+    const issueIds = votes.map(v => v.issueId);
+    res.json({ votedIssueIds: issueIds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/user/:uid/notifications", async (req, res) => {
+  try {
+    const notifications = await Notification.find({ userId: req.params.uid })
+      .sort({ timestamp: -1 })
+      .limit(50)
+      .lean();
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/api/user/:uid/notifications/:id/read", async (req, res) => {
+  try {
+    await Notification.updateOne({ id: req.params.id, userId: req.params.uid }, { $set: { read: true } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/leaderboard", async (req, res) => {
   try {
     const citizens = await User.find({ isAgency: false }).sort({ points: -1 }).limit(10).lean();
@@ -510,17 +591,26 @@ app.get("/api/leaderboard", async (req, res) => {
 
 app.get("/api/issues", async (req, res) => {
   try {
-    const issues = await Issue.find().lean();
-    const reports = await Report.find().lean();
+    const limit = parseInt(req.query.limit) || 500; // default limit to prevent crashing
+    const issues = await Issue.find({ adminStatus: { $ne: "fake" } })
+                              .sort({ createdAt: -1 })
+                              .limit(limit)
+                              .lean();
+                              
+    const issueIds = issues.map(i => i.id);
+    const reports = await Report.find({ issueId: { $in: issueIds } }).lean();
     
     const enrichedIssues = issues.map(issue => {
       const issueReports = reports.filter(r => r.issueId === issue.id);
       const firstReport = issueReports.length > 0 ? issueReports[0] : null;
+      const photoUrl = firstReport ? (firstReport.mediaList?.length > 0 ? firstReport.mediaList[0].photoUrl : firstReport.photoUrl) : null;
+      const mediaType = firstReport ? (firstReport.mediaList?.length > 0 ? firstReport.mediaList[0].mediaType : (firstReport.mediaType || "image")) : "image";
       return {
         ...issue,
-        photoUrl: firstReport ? firstReport.photoUrl : null,
-        mediaType: firstReport ? (firstReport.mediaType || "image") : "image",
-        userDescription: firstReport ? firstReport.description : null // Wait, report has description? No, report schema just has category. Issue has description.
+        photoUrl,
+        mediaType,
+        mediaList: firstReport ? firstReport.mediaList : [],
+        userDescription: firstReport ? firstReport.userDescription : null
       };
     });
     
@@ -552,14 +642,21 @@ app.get("/api/issues/:id", async (req, res) => {
 
 app.post("/api/reports", async (req, res) => {
   try {
-    const { userId, photoUrl, mediaType: clientMediaType, lat, lng, userCategory, userDescription } = req.body;
+    const { userId, photoUrl: oldPhotoUrl, mediaType: oldMediaType, lat, lng, userCategory, userDescription, mediaList } = req.body;
     if (!userId || !lat || !lng) {
       return res.status(400).json({ error: "userId, lat, and lng are required." });
     }
 
+    // Support both old format (single photoUrl) and new format (mediaList array)
+    let finalMediaList = mediaList || [];
+    if (finalMediaList.length === 0 && oldPhotoUrl) {
+      finalMediaList = [{ photoUrl: oldPhotoUrl, mediaType: oldMediaType }];
+    }
+
+    const photoUrl = finalMediaList.length > 0 ? finalMediaList[0].photoUrl : "";
     const uploadedExtension = path.extname(photoUrl || "").replace(".", "").toLowerCase();
-    const mediaType = clientMediaType || getMediaTypeFromMime(getMimeFromExtension(uploadedExtension));
-    const mediaWord = mediaType === "video" ? "video" : "photo";
+    const mediaType = finalMediaList.length > 0 && finalMediaList[0].mediaType ? finalMediaList[0].mediaType : getMediaTypeFromMime(getMimeFromExtension(uploadedExtension));
+    const mediaWord = finalMediaList.some(m => m.mediaType === "video") ? "video" : "photo";
 
     const now = Date.now();
     let category = userCategory || "Roads & Potholes";
@@ -570,61 +667,37 @@ app.post("/api/reports", async (req, res) => {
     let aiStatus = "not_requested";
     let aiMessage = null;
     let suggestedAgency = "agency_pwd";
-    
+
     const client = getGeminiClient();
     let aiAnalyzed = false;
     let isFakeReport = false;
-    
-    if (client && photoUrl) {
+
+    if (client && finalMediaList.length > 0) {
       try {
-        let mediaBuffer = null;
-        let localPath = null;
-        if (photoUrl.startsWith("/uploads/")) {
-          localPath = path.join(process.cwd(), photoUrl);
-          if (fs.existsSync(localPath)) {
-            const stats = fs.statSync(localPath);
-            if (stats.size <= MAX_INLINE_MEDIA_BYTES) {
-              mediaBuffer = fs.readFileSync(localPath);
-            } else {
-              console.warn(`Media file too large for inline Gemini analysis (${stats.size} bytes), falling back to heuristic`);
+        let inlineDataParts = [];
+        for (const media of finalMediaList) {
+          if (media.photoUrl && media.photoUrl.startsWith("/uploads/")) {
+            const localPath = path.join(process.cwd(), media.photoUrl);
+            if (fs.existsSync(localPath)) {
+              const stats = fs.statSync(localPath);
+              if (stats.size <= MAX_INLINE_MEDIA_BYTES) {
+                const mediaBuffer = fs.readFileSync(localPath);
+                const mimeType = getMimeFromExtension(path.extname(localPath));
+                const base64Data = mediaBuffer.toString("base64");
+                inlineDataParts.push({ inlineData: { mimeType, data: base64Data } });
+              } else {
+                console.warn(`Media file too large for inline Gemini analysis (${stats.size} bytes)`);
+              }
             }
           }
         }
-        if (mediaBuffer) {
-          const mimeType = getMimeFromExtension(path.extname(localPath));
-          const base64Data = mediaBuffer.toString("base64");
-          const promptText = `Analyze this citizen-reported civic issue ${mediaWord}.
-            Check whether it shows a genuine civic issue (like a pothole, garbage dump, broken street light, sewage leak, etc) or whether it is irrelevant, unrelated, staged, or fake (like an X-ray, medical scan, selfie, screenshot, document, animal, person-only image, indoor object, etc).
-            ${mediaType === "video" ? "This is a short video clip - base your judgment on what is shown across the whole clip, not just one frame." : ""}
-            If it is completely irrelevant or fake, set "isFake" to true, set "category" to "Invalid / Non-civic", set "suggested_agency" to "agency_pwd", and in the "description" field explicitly state what the image actually is (for example, "This appears to be an X-ray image") and explain why it is not a civic issue. Set "fakeConfidence" to a number between 0 and 1.
-            
-            If genuine, classify into:
-            - "Roads & Potholes"
-            - "Garbage & Sanitation"
-            - "Street Lights"
-            - "Sewage & Water Leak"
-            
-            Assess severity (High, Medium, Low).
-            Determine agency from:
-            - "agency_pwd" (for Roads & Potholes)
-            - "agency_waste" (for Garbage & Sanitation)
-            - "agency_light" (for Street Lights)
-            - "agency_water" (for Sewage & Water Leak)
-
-            Return ONLY structured JSON adhering strictly to:
-            {
-              "isFake": boolean,
-              "fakeConfidence": number,
-              "category": string,
-              "severity": "High" | "Medium" | "Low",
-              "suggested_agency": string,
-              "confidence": number,
-              "description": string
-            }`;
+        
+        if (inlineDataParts.length > 0) {
+          const promptText = buildCitizenReportPrompt(mediaWord, finalMediaList.some(m => m.mediaType === "video"));
           aiStatus = "analyzing";
           const response = await generateGeminiContentWithRetry(client, {
             model: GEMINI_MODEL,
-            contents: [promptText, { inlineData: { mimeType, data: base64Data } }],
+            contents: [promptText, ...inlineDataParts],
             config: { responseMimeType: "application/json" }
           });
           const classification = normalizeClassification(
@@ -725,6 +798,7 @@ app.post("/api/reports", async (req, res) => {
       issueId: "",
       photoUrl: photoUrl || "https://images.unsplash.com/photo-1599740831419-b5ce97c1b7c6?auto=format&fit=crop&w=600&q=80",
       mediaType,
+      mediaList: finalMediaList,
       lat,
       lng,
       geohash: encodeGeohash(lat, lng),
@@ -804,12 +878,12 @@ app.post("/api/verify", async (req, res) => {
     const user = await User.findOne({ id: userId });
     if (!issue) return res.status(404).json({ error: "Issue not found" });
     
-    const voteId = `${issueId}_${userId}_${type}`;
-    const existingVote = await Verification.findOne({ id: voteId });
+    const existingVote = await Verification.findOne({ issueId, userId });
     if (existingVote) {
-      return res.status(400).json({ error: "You have already cast this verification vote." });
+      return res.status(400).json({ error: "You have already voted on this issue." });
     }
     
+    const voteId = `${issueId}_${userId}_${Date.now()}`;
     const newVerification = new Verification({
       id: voteId,
       issueId,
@@ -1013,7 +1087,7 @@ app.get("/api/authorities", (req, res) => {
 
 app.post("/api/whatsapp/simulate", async (req, res) => {
   try {
-    const { sender, message, lat, lng, imageBase64 } = req.body;
+    const { sender, message, lat, lng, imageBase64, citizenName, citizenEmail, mediaFiles } = req.body;
     if (!sender || !message) {
       return res.status(400).json({ error: "Sender and message are required" });
     }
@@ -1039,13 +1113,33 @@ app.post("/api/whatsapp/simulate", async (req, res) => {
     const waLog = new WhatsappMessage({
       id: `wa_${Date.now()}`,
       sender,
+      citizenName,
+      citizenEmail,
       message,
       lat: reportLat,
       lng: reportLng,
       photoUrl,
+      mediaList: mediaFiles,
       createdAt: now
     });
     await waLog.save();
+
+    // Upsert User
+    const userId = `wa_user_${sender.replace(/\\D/g, '')}`;
+    let user = await User.findOne({ id: userId });
+    if (!user && citizenName) {
+      user = new User({
+        id: userId,
+        name: citizenName,
+        phone: sender,
+        email: citizenEmail,
+        points: 0,
+        badgeTier: "bronze",
+        ward: "Unknown Ward",
+        isAgency: false
+      });
+      await user.save();
+    }
     
     let category = "Roads & Potholes";
     let suggestedAgency = "agency_pwd";
@@ -1153,9 +1247,10 @@ app.post("/api/whatsapp/simulate", async (req, res) => {
     const reportId = `report_wa_${Date.now()}`;
     const newReport = new Report({
       id: reportId,
-      userId: "whatsapp_anon_user",
+      userId: userId,
       issueId: "",
       photoUrl,
+      mediaList: mediaFiles,
       lat: reportLat,
       lng: reportLng,
       geohash: encodeGeohash(reportLat, reportLng),
@@ -1186,7 +1281,8 @@ app.post("/api/whatsapp/simulate", async (req, res) => {
         markedFixedAt: null,
         resolvedAt: null,
         StillBrokenCount: 0,
-        isFake: isFakeReport
+        isFake: isFakeReport,
+        reportedBy: userId
       });
       await newIssue.save();
       newReport.issueId = issueId;
@@ -1206,7 +1302,9 @@ app.post("/api/whatsapp/simulate", async (req, res) => {
   }
 });
 
-if (true) {
+const isProduction = process.env.NODE_ENV === "production";
+
+if (!isProduction) {
   import("vite").then(async (viteModule) => {
     const vite = await viteModule.createServer({
       server: { middlewareMode: true },

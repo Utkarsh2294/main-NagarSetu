@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ShieldCheck, Menu, X, Globe, User } from "lucide-react";
 import { useLanguage } from "../i18n/LanguageContext";
 import { motion, AnimatePresence } from "motion/react";
+import NotificationBell from "./NotificationBell";
 export default function Navbar({ user, onLoginClick, onLogoutClick }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -18,13 +19,13 @@ export default function Navbar({ user, onLoginClick, onLogoutClick }) {
   const navLinks = [
     { name: t("nav.home"), path: "/" },
     { name: t("nav.map"), path: "/map" },
-    { name: t("nav.dashboard"), path: "/dashboard" },
-    { name: t("nav.leaderboard"), path: "/leaderboard" },
     { name: "Community Verification", path: "/verify" },
     { name: t("nav.whatsapp"), path: "/whatsapp" },
-    { name: t("nav.about"), path: "/about" },
     { name: t("nav.authorities"), path: "/authorities" },
-    { name: t("nav.contact"), path: "/contact" }
+    { name: "Leaderboard", path: "/leaderboard" },
+    { name: t("nav.about"), path: "/about" },
+    { name: t("nav.contact"), path: "/contact" },
+    { name: "Admin", path: "/admin" }
   ];
   const isActive = (path) => location.pathname === path;
   return <nav
@@ -46,12 +47,12 @@ export default function Navbar({ user, onLoginClick, onLogoutClick }) {
         {
     /* Center: Desktop Nav Links */
   }
-        <div className="hidden lg:flex items-center absolute left-1/2 -translate-x-1/2">
-          <div className="flex items-center gap-1 bg-slate-800/50 rounded-full p-1 border border-slate-700/50 backdrop-blur-md">
+        <div className="hidden lg:flex flex-1 justify-center items-center px-2">
+          <div className="flex items-center gap-1 bg-slate-800/50 rounded-full p-1 border border-slate-700/50 backdrop-blur-md overflow-x-auto custom-scrollbar no-scrollbar max-w-full">
             {navLinks.map((link) => <Link
     key={link.path}
     to={link.path}
-    className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${isActive(link.path) ? "bg-indigo-600 text-white shadow-md" : "text-slate-300 hover:text-white hover:bg-slate-700/50"}`}
+    className={`whitespace-nowrap shrink-0 px-2.5 py-1.5 lg:px-3 xl:px-4 xl:py-2 rounded-full text-[11px] lg:text-xs xl:text-sm font-medium transition-all duration-200 ${isActive(link.path) ? "bg-indigo-600 text-white shadow-md" : "text-slate-300 hover:text-white hover:bg-slate-700/50"}`}
   >
                 {link.name}
               </Link>)}
@@ -77,6 +78,7 @@ export default function Navbar({ user, onLoginClick, onLogoutClick }) {
           <div className="h-6 w-px bg-slate-700 mx-2" />
 
           {user ? <div className="flex items-center gap-3">
+              <NotificationBell userId={user.id} />
               <div className="flex flex-col items-end hidden xl:flex">
                 <span className="text-sm font-bold text-slate-100">{user.name}</span>
                 <span className="text-xs text-indigo-400 font-mono">{user.points} pts</span>

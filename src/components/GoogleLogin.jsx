@@ -6,8 +6,8 @@ export default function GoogleLogin({ onLoginSuccess }) {
       window.google.accounts.id.initialize({
         // This is a placeholder client ID. In a real app, you'd use your actual Google Client ID from Google Cloud Console.
         // Since we are mocking/bypassing full verification for local development without an actual client ID setup,
-        // we will simulate the callback if the Google GSI script isn't fully configured.
-        client_id: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+        // Use the actual Client ID from the environment variable instead of the hardcoded placeholder
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
         callback: (response) => {
           if (response.credential) {
             onLoginSuccess(response.credential);

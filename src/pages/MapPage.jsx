@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import NagarMap from "../components/NagarMap";
-import { Camera, MapPin, Send, AlertTriangle, ShieldCheck, CheckCircle2, ChevronLeft, Eye, EyeOff } from "lucide-react";
+import { Camera, MapPin, Send, AlertTriangle, ShieldCheck, CheckCircle2, ChevronLeft, Eye, EyeOff, X, Mic } from "lucide-react";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const AI_STATUS_COPY = {
@@ -25,13 +25,47 @@ export default function MapPage({ currentUser, onLoginClick }) {
   const [gpsSource, setGpsSource] = useState("Loading...");
   const [reportCategory, setReportCategory] = useState("Roads & Potholes");
   const [reportDescription, setReportDescription] = useState("");
-  const [reportPhotoBase64, setReportPhotoBase64] = useState(null);
-  const [reportPreviewUrl, setReportPreviewUrl] = useState(null);
-  const [reportMediaType, setReportMediaType] = useState("image");
+  const [reportMedia, setReportMedia] = useState([]);
+  const [address, setAddress] = useState("Fetching address...");
   const [analysisStatus, setAnalysisStatus] = useState("idle");
   const [analysisMessage, setAnalysisMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const fileInputRef = useRef(null);
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      setIsRecording(false);
+      window.mapSpeechRecognitionInstance?.stop();
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    window.mapSpeechRecognitionInstance = recognition;
+    recognition.lang = 'en-IN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    
+    // Capture the existing text when recording starts
+    const existingText = reportDescription;
+
+    recognition.onstart = () => setIsRecording(true);
+    recognition.onresult = (event) => {
+      let currentTranscript = '';
+      for (let i = 0; i < event.results.length; ++i) {
+        currentTranscript += event.results[i][0].transcript;
+      }
+      setReportDescription(existingText ? existingText + ' ' + currentTranscript : currentTranscript);
+    };
+    recognition.onerror = () => setIsRecording(false);
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
+  };
+
   useEffect(() => {
     fetchIssues();
     fetchHotspots();
@@ -61,6 +95,22 @@ export default function MapPage({ currentUser, onLoginClick }) {
       setSelectedIssueDetail(null);
     }
   }, [selectedIssueId, issues]);
+
+  useEffect(() => {
+    if (newReportCoords) {
+      setAddress("Fetching address...");
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${newReportCoords.lat}&lon=${newReportCoords.lng}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.display_name) {
+            setAddress(data.display_name);
+          } else {
+            setAddress("Address not found");
+          }
+        })
+        .catch(() => setAddress("Failed to fetch address"));
+    }
+  }, [newReportCoords]);
   const fetchIssues = async () => {
     try {
       const res = await fetch("/api/issues");
@@ -80,43 +130,56 @@ export default function MapPage({ currentUser, onLoginClick }) {
     }
   };
   const handlePhotoCapture = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setReportPreviewUrl(URL.createObjectURL(file));
-      setReportMediaType(file.type?.startsWith("video/") ? "video" : "image");
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    if (reportMedia.length + files.length > 5) {
+      alert("You can upload a maximum of 5 photos/videos.");
+      return;
+    }
+
+    files.forEach(file => {
+      const type = file.type?.startsWith("video/") ? "video" : "image";
+      const previewUrl = URL.createObjectURL(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setReportPhotoBase64(reader.result);
+        setReportMedia(prev => [...prev, { file, type, previewUrl, base64: reader.result }]);
       };
       reader.readAsDataURL(file);
-    }
+    });
+  };
+
+  const removeMedia = (index) => {
+    setReportMedia(prev => prev.filter((_, i) => i !== index));
   };
   const handleSubmitReport = async () => {
     if (!newReportCoords || !currentUser) return;
     setIsSubmitting(true);
-    setAnalysisStatus(reportPhotoBase64 ? "analyzing" : "idle");
-    setAnalysisMessage(reportPhotoBase64 ? AI_STATUS_COPY.analyzing : "");
+    setAnalysisStatus(reportMedia.length > 0 ? "analyzing" : "idle");
+    setAnalysisMessage(reportMedia.length > 0 ? AI_STATUS_COPY.analyzing : "");
     try {
-      let photoUrl = "";
-      let uploadedMediaType = reportMediaType;
-      if (reportPhotoBase64) {
-        const uploadRes = await fetch("/api/upload-photo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: reportPhotoBase64, uid: currentUser.id })
-        });
-        const uploadData = await uploadRes.json();
-        photoUrl = uploadData.photoUrl;
-        uploadedMediaType = uploadData.mediaType || uploadedMediaType;
-        setReportMediaType(uploadedMediaType);
+      let mediaList = [];
+      if (reportMedia.length > 0) {
+        mediaList = await Promise.all(reportMedia.map(async (media) => {
+          const uploadRes = await fetch("/api/upload-media", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mediaBase64: media.base64, uid: currentUser.id })
+          });
+          const uploadData = await uploadRes.json();
+          return {
+            photoUrl: uploadData.photoUrl,
+            mediaType: uploadData.mediaType || media.type
+          };
+        }));
       }
+
       const reportRes = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: currentUser.id,
-          photoUrl,
-          mediaType: uploadedMediaType,
+          mediaList,
           lat: newReportCoords.lat,
           lng: newReportCoords.lng,
           userCategory: reportCategory,
@@ -133,9 +196,7 @@ export default function MapPage({ currentUser, onLoginClick }) {
         setNewReportCoords(null);
         setReportCategory("Roads & Potholes");
         setReportDescription("");
-        setReportPhotoBase64(null);
-        setReportPreviewUrl(null);
-        setReportMediaType("image");
+        setReportMedia([]);
         fetchIssues();
       } else {
         setAnalysisStatus("failed");
@@ -236,30 +297,21 @@ export default function MapPage({ currentUser, onLoginClick }) {
           {
     /* Default List View */
   }
-          {!newReportCoords && !selectedIssueId && <div className="flex flex-col h-full overflow-hidden">
-              <div className="p-5 border-b border-slate-800/50 bg-slate-900/50">
-                <h2 className="text-xl font-bold text-white font-display flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  {t("map.escalated")}
-                </h2>
+          {!newReportCoords && !selectedIssueId && <div className="flex flex-col h-full items-center justify-center p-8 bg-slate-900/50 relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+              <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(99,102,241,0.3)] animate-pulse">
+                <MapPin className="h-10 w-10 text-indigo-400" />
               </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-                {issues.map((issue) => <button
-    key={issue.id}
-    onClick={() => setSelectedIssueId(issue.id)}
-    className="w-full text-left p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 transition-all group"
-  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">{issue.category}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${issue.status === "resolved" ? "bg-emerald-500/20 text-emerald-400" : issue.status === "verified" ? "bg-orange-500/20 text-orange-400" : issue.status === "pending_fix_confirmation" ? "bg-purple-500/20 text-purple-400" : "bg-amber-500/20 text-amber-400"}`}>
-                        {issue.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-300 font-medium line-clamp-2">{issue.description}</p>
-                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                      <span className="bg-slate-800 px-2 py-1 rounded-md">{issue.reportCount} {t("map.reports_merged")}</span>
-                    </div>
-                  </button>)}
+              <h2 className="text-2xl font-bold text-white font-display text-center mb-3">
+                Raise Your Voice!
+              </h2>
+              <p className="text-slate-400 text-center max-w-[280px] leading-relaxed">
+                <strong className="text-indigo-300">Tap anywhere on the map</strong> to drop a pin and report civic issues directly to the authorities.
+              </p>
+              
+              <div className="mt-8 flex items-center gap-2 text-xs font-semibold text-slate-500 bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700/50">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Select an existing pin to view or verify it
               </div>
             </div>}
 
@@ -275,9 +327,28 @@ export default function MapPage({ currentUser, onLoginClick }) {
               </div>
               
               <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+                {currentUser && (
+                  <div className="flex items-center gap-3 bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                    {currentUser.picture ? (
+                      <img src={currentUser.picture} alt="Avatar" className="w-10 h-10 rounded-full" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">
+                        {currentUser.name?.charAt(0) || "U"}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-sm font-bold text-white">{currentUser.name}</div>
+                      <div className="text-xs text-slate-400">{currentUser.email || currentUser.phone}</div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-indigo-900/20 border border-indigo-500/20 rounded-xl p-3 text-xs text-indigo-300 flex items-start gap-2">
                   <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                  <p>Pin dropped at {newReportCoords.lat.toFixed(4)}, {newReportCoords.lng.toFixed(4)}. Move map to adjust.</p>
+                  <p>
+                    <strong>Location:</strong> {address} <br/>
+                    <span className="opacity-70 text-[10px]">({newReportCoords.lat.toFixed(4)}, {newReportCoords.lng.toFixed(4)})</span>
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -295,34 +366,57 @@ export default function MapPage({ currentUser, onLoginClick }) {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("map.photo_label")}</label>
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("map.photo_label")} (Up to 5)</label>
                   <div className="border-2 border-dashed border-slate-700 rounded-xl p-4 text-center hover:border-indigo-500 transition-colors bg-slate-800/50">
                     <input
     type="file"
     accept="image/*,video/*"
+    multiple
     className="hidden"
     ref={fileInputRef}
     onChange={handlePhotoCapture}
   />
-                    {reportPreviewUrl ? <div className="relative">
-                        {fileInputRef.current?.files?.[0]?.type?.startsWith("video/") ? <video src={reportPreviewUrl} controls className="w-full h-32 object-cover rounded-lg border border-slate-600" /> : <img src={reportPreviewUrl} alt="Preview" className="w-full h-32 object-cover rounded-lg border border-slate-600" />}
-                        <button
-    onClick={() => { setReportPhotoBase64(null); setReportPreviewUrl(null); setReportMediaType("image"); }}
-    className="absolute top-2 right-2 bg-slate-900/80 p-1.5 rounded-md text-slate-300 hover:text-white"
-  >
-                          <ChevronLeft className="h-4 w-4 rotate-180" />
-                        </button>
-                      </div> : <div className="flex flex-col items-center gap-2" onClick={() => fileInputRef.current?.click()}>
+                    {reportMedia.length > 0 ? (
+                      <div className="flex gap-2 flex-wrap mb-3">
+                        {reportMedia.map((media, idx) => (
+                          <div key={idx} className="relative w-20 h-20 shrink-0">
+                            {media.type === "video" ? (
+                              <video src={media.previewUrl} className="w-full h-full object-cover rounded-lg border border-slate-600" />
+                            ) : (
+                              <img src={media.previewUrl} alt="Preview" className="w-full h-full object-cover rounded-lg border border-slate-600" />
+                            )}
+                            <button
+                              onClick={() => removeMedia(idx)}
+                              className="absolute -top-2 -right-2 bg-rose-500 rounded-full p-1 text-white hover:bg-rose-600 shadow-md"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {reportMedia.length < 5 && (
+                          <button onClick={() => fileInputRef.current?.click()} className="w-20 h-20 rounded-lg border border-dashed border-slate-600 flex items-center justify-center text-slate-400 hover:text-indigo-400 hover:border-indigo-400 transition-colors bg-slate-800">
+                            <Camera className="h-6 w-6" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2" onClick={() => fileInputRef.current?.click()}>
                         <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center text-indigo-400">
                           <Camera className="h-5 w-5" />
                         </div>
                         <p className="text-xs text-slate-400 cursor-pointer">{t("map.photo_hint")}</p>
-                      </div>}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("map.description_label")}</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("map.description_label")}</label>
+                    <button onClick={toggleRecording} className={`transition-colors flex items-center gap-1 text-[10px] uppercase font-bold ${isRecording ? 'text-red-500 animate-pulse' : 'text-slate-400 hover:text-indigo-400'}`}>
+                      <Mic className="h-3 w-3" /> {isRecording ? "Recording..." : "Voice Type"}
+                    </button>
+                  </div>
                   <textarea
     value={reportDescription}
     onChange={(e) => setReportDescription(e.target.value)}
@@ -342,7 +436,7 @@ export default function MapPage({ currentUser, onLoginClick }) {
     className="flex-[2] bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-indigo-600/20"
   >
                   {isSubmitting ? <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" /> : <Send className="h-4 w-4" />}
-                  {!currentUser ? "Sign in to Submit" : isSubmitting && reportPhotoBase64 ? AI_STATUS_COPY.analyzing : t("map.submit")}
+                  {!currentUser ? "Sign in to Submit" : isSubmitting && reportMedia.length > 0 ? AI_STATUS_COPY.analyzing : t("map.submit")}
                 </button>
               </div>
             </div>}
