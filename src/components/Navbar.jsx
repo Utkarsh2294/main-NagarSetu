@@ -109,13 +109,14 @@ export default function Navbar({ user, onLoginClick, onLogoutClick }) {
     /* Mobile Menu */
   }
       <AnimatePresence>
-        {isMobileMenuOpen && <motion.div
-    initial={{ opacity: 0, y: -20 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -20 }}
-    transition={{ duration: 0.2 }}
-    className="absolute top-full left-0 right-0 glass border-t border-slate-700/50 p-4 lg:hidden flex flex-col gap-2 shadow-2xl"
-  >
+        {isMobileMenuOpen && (
+          <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.2 }}
+      className="absolute top-full left-0 right-0 bg-slate-950 border-b border-slate-800 p-4 lg:hidden flex flex-col gap-2 shadow-2xl"
+    >
             {navLinks.map((link) => <Link
     key={link.path}
     to={link.path}
@@ -167,7 +168,7 @@ export default function Navbar({ user, onLoginClick, onLogoutClick }) {
   >
                 {t("nav.login")}
               </button>}
-          </motion.div>}
+          </motion.div>)}
       </AnimatePresence>
     </nav>;
 }
