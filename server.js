@@ -359,10 +359,10 @@ function normalizeClassification(classification, fallback) {
 // Shared citizen-report prompt (also surfaced to the admin media classifier so the
 // worker proof-of-work flow reuses the same fake-detection language, §8.1).
 function buildCitizenReportPrompt(mediaWord, isVideo) {
-  return `Analyze this citizen-reported civic issue ${mediaWord}.
-            Check whether it shows a genuine civic issue (like a pothole, garbage dump, broken street light, sewage leak, etc) or whether it is irrelevant, unrelated, staged, or fake (like an X-ray, medical scan, selfie, screenshot, document, animal, person-only image, indoor object, etc).
-            ${isVideo ? "This is a short video clip - base your judgment on what is shown across the whole clip, not just one frame." : ""}
-            If it is completely irrelevant or fake, set "isFake" to true, set "category" to "Invalid / Non-civic", set "suggested_agency" to "agency_pwd", and in the "description" field explicitly state what the image actually is (for example, "This appears to be an X-ray image") and explain why it is not a civic issue. Set "fakeConfidence" to a number between 0 and 1.
+  return `Analyze the following citizen-reported civic issue media files (which may include multiple photos or videos).
+            Base your judgment on what is shown across ALL of the provided media files combined.
+            Check whether they show a genuine civic issue (like a pothole, garbage dump, broken street light, sewage leak, etc) or whether they are irrelevant, unrelated, staged, or fake (like an X-ray, medical scan, selfie, screenshot, document, animal, person-only image, indoor object, etc).
+            If it is completely irrelevant or fake, set "isFake" to true, set "category" to "Invalid / Non-civic", set "suggested_agency" to "agency_pwd", and in the "description" field explicitly state what the media actually is (for example, "These appear to be X-ray images") and explain why it is not a civic issue. Set "fakeConfidence" to a number between 0 and 1.
 
             If genuine, classify into:
             - "Roads & Potholes"

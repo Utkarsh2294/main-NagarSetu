@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { MapPin, ChevronRight } from "lucide-react";
+import { MapPin, ChevronRight, Bot } from "lucide-react";
 import SLABadge from "./SLABadge";
 import { STATUS_PILL } from "./StatusChangeControl";
 
@@ -55,6 +55,12 @@ export default function AdminIssueTable({ issues, loading, sortBy = "createdAt",
                     <span className="font-mono">{issue.lat?.toFixed(4)}, {issue.lng?.toFixed(4)}</span>
                     <span className="text-slate-600">· {issue.reportCount || 1} reports</span>
                   </div>
+                  {issue.aiAssessment && (
+                    <div className="flex items-start gap-1 mt-2 text-xs text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-1 rounded">
+                      <Bot className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">AI: {issue.aiAssessment}</span>
+                    </div>
+                  )}
                 </td>
                 <td className="p-4 text-sm text-slate-300">{issue.category}</td>
                 <td className={`p-4 text-sm font-bold ${sevColor}`}>{issue.severity}</td>
