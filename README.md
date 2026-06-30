@@ -1,52 +1,82 @@
-# NagarSetu
+# 🌉 NagarSetu
 
-NagarSetu is a comprehensive, AI-powered civic issue reporting and management platform. It bridges the gap between citizens and city authorities by allowing seamless reporting of issues, automated AI triaging, and a robust admin dashboard for task delegation and tracking.
+NagarSetu is a next-generation, AI-powered civic issue resolution platform designed to bridge the gap between citizens and municipal authorities. It provides a decentralized, highly automated pipeline for reporting, verifying, tracking, and resolving civic issues like potholes, garbage dumps, broken street lights, and water leaks.
 
-## Core Features
-
-### 1. Citizen Portal
-- **Interactive Issue Map:** Citizens can drop a pin on a Leaflet map to report issues. Real-time reverse geocoding translates coordinates into human-readable addresses.
-- **AI-Powered Reporting:** Users upload photos/videos and provide descriptions. Gemini AI automatically analyzes the images, detects if it's a real civic issue (or fake), classifies the category (e.g., Potholes, Garbage), and assesses severity.
-- **Voice Typing:** Built-in Web Speech API integration allows citizens to dictate their issue descriptions instantly instead of typing, ensuring accessibility and ease of use.
-- **Leaderboard & Gamification:** Citizens earn points for reporting issues, verifying existing issues, and auditing agency fixes. A real-time leaderboard ranks top contributors.
-- **Multi-Language Support:** The platform supports toggling between English and Hindi.
-- **Notifications:** A real-time notification bell keeps citizens informed about their report statuses (e.g., assigned, fixed, or flagged as fake). Notifications are drafted intelligently by AI based on admin actions.
-
-### 2. WhatsApp Bot Simulator
-- **Conversational Interface:** A fully interactive, beautiful simulated WhatsApp bot that mimics a mobile device.
-- **Media & Location Capture:** The bot requests name, email, location (via browser GPS or text), and media attachments.
-- **Voice Typing in Bot:** Citizens can use continuous voice typing directly within the WhatsApp simulator to seamlessly compose messages.
-- **Backend Integration:** Simulating a report through the bot triggers the exact same backend logic as the main app: AI processing, database logging, and admin dashboard rendering.
-
-### 3. Admin Dashboard
-- **Secure Access:** JWT-based authentication for administrators.
-- **Unified Ticket Queue:** Admins see all issues reported via the web portal or the WhatsApp bot.
-- **Issue Details & Triage:** 
-  - Admins can view uploaded media in a horizontally scrolling gallery.
-  - "Location" cards feature reverse-geocoded addresses and direct "View on Map" links to Google Maps.
-  - Verification statistics show how many citizens voted the issue as real or fake.
-- **Worker Assignment:** Admins can assign tasks to verified workers.
-- **AI-Generated Notifications:** When an admin assigns a worker or flags a report as fake, Gemini AI drafts a custom, empathetic response message that is automatically sent to the reporting citizen's notification inbox.
-
-## Architecture
-- **Frontend:** React, Vite, Tailwind CSS, Leaflet for maps, Lucide Icons.
-- **Backend:** Node.js, Express.js.
-- **Database:** MongoDB (Mongoose schemas for Users, Issues, Reports, Notifications, etc.).
-- **AI Integration:** Google Gemini SDK (`@google/genai`) for image analysis and notification generation.
-- **Routing:** React Router DOM (Separate routes for `/admin/*` and citizen views).
-
-## Data Models
-1. **User:** Tracks citizen points, ward, and contact info.
-2. **Issue:** Represents a unique civic problem. Duplicate reports within 50 meters auto-merge into a single Issue.
-3. **Report:** Individual submissions tied to an Issue. Contains media and raw coordinates.
-4. **WhatsappMessage:** Logs interactions from the WhatsApp webhook/simulator.
-5. **Notification:** AI-drafted messages sent to citizens.
+By integrating Google Gemini AI, WhatsApp, and community-driven verification, NagarSetu eliminates fake reports, reduces bureaucratic delays, and guarantees transparency through the entire issue lifecycle.
 
 ---
 
-## Local Development
-1. Run `npm install`
-2. Create a `.env` file based on the placeholders inside the repository. You will need a MongoDB URI and a Google Gemini API Key.
-3. Run `npm run dev` to start both the Vite frontend and Express backend concurrently.
+## ✨ Core Features & Functions
 
-**For deployment instructions, please see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).**
+### 1. 🤖 AI-Powered Civic Reporting
+Citizens can report issues via the web app by snapping a photo or video (up to 5 media files per report). 
+- **Automated Triage:** Google Gemini AI instantly analyzes the uploaded media to automatically classify the issue (e.g., "Roads & Potholes", "Street Lights").
+- **Severity & Agency Assignment:** The AI assesses the severity of the issue and automatically routes it to the correct local municipal agency (e.g., PWD, Waste Management).
+- **Fake Detection:** The AI aggressively filters out non-civic, irrelevant, or staged photos (like selfies, documents, or indoor objects), marking them for community review rather than wasting agency time.
+
+### 2. 📱 WhatsApp Bot Integration
+Not everyone has a smartphone with a web browser. Citizens can simply send a photo, a short description, and their GPS location to the NagarSetu WhatsApp Bot. The bot uses the same AI infrastructure to parse the report, log it into the centralized database, and reply with a tracking ID entirely through WhatsApp.
+
+### 3. 📍 Geofenced Community Verification (Double-Verification)
+To prevent duplicate and fake reports, NagarSetu relies on localized community consensus.
+- **500m Radius Lock:** Only citizens who are physically within a 500-meter radius of the reported issue can upvote or verify it.
+- **Auto-Clustering:** If a citizen tries to report an issue within 50 meters of an already existing active report, the system automatically clusters them together to prevent duplicate ticket spam.
+
+### 4. 🏢 Comprehensive Admin & Agency Dashboard
+Municipal authorities have access to a powerful control center.
+- **Live Heatmap:** Visualizes all active issues on a map, allowing authorities to spot infrastructural failures in real-time.
+- **SLA Tracking:** Every issue has a Service Level Agreement (SLA) deadline. Badges clearly indicate if an issue is "SLA Breached", "SLA Warning", or "On Time."
+- **Worker Assignment & Reassignment:** Admins can dispatch field workers to specific issues with a single click.
+- **AI Triage Notes:** When admins change the status of an issue (e.g., from "In Progress" to "Resolved"), Gemini AI automatically drafts a contextual, polite response which the admin can edit and push directly to the citizen's notification center.
+
+### 5. 👷 Decentralized Worker "Proof-of-Fix"
+When field workers complete a job, they don't just close the ticket. They must upload a photo or video proving the issue was fixed. 
+- The AI analyzes the worker's upload to ensure it matches the original issue location and actually depicts a resolution.
+- Once the worker submits the proof, the citizens who originally reported and verified the issue are notified to re-verify the fix. If citizens vote "Still Broken," the ticket instantly reopens.
+
+### 6. 🏆 Gamification & Leaderboard
+To incentivize civic participation, NagarSetu rewards citizens with "Impact Points" for submitting genuine reports and verifying existing ones. The integrated Leaderboard highlights the top contributors in the city, turning civic duty into a rewarding, community-building experience.
+
+### 7. 🌍 Multi-Lingual Support
+Recognizing the diversity of the populace, NagarSetu natively supports multiple languages (English, Hindi, Marathi, Gujarati, etc.), making civic engagement accessible to everyone.
+
+### 8. 📊 Public Transparency Dashboard
+A dedicated dashboard is available to the public showing real-time statistics: total issues reported, total resolved, agency response times, and the top active reporting zones. This enforces municipal accountability.
+
+---
+
+## 🛠️ Technology Stack
+- **Frontend:** React 19, Tailwind CSS, Vite, Framer Motion, Lucide Icons, React-Leaflet (Maps)
+- **Backend:** Node.js, Express.js
+- **Database:** MongoDB Atlas (Mongoose)
+- **AI & ML:** `@google/genai` (Google Gemini 2.5 Flash for multimodal image/video analysis)
+- **Authentication:** Google OAuth 2.0 & JWT for Admin sessions
+
+---
+
+## 🚀 Getting Started
+
+1. **Install Dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Configure Environment:**
+   Create a `.env` file in the root directory:
+   ```env
+   NODE_ENV=development
+   GEMINI_API_KEY=your_gemini_api_key
+   MONGODB_URI=your_mongodb_connection_string
+   VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
+   ADMIN_JWT_SECRET=your_secure_jwt_secret
+   ```
+
+3. **Run the Development Server:**
+   ```bash
+   npm run dev
+   ```
+   The backend API and the Vite frontend will start concurrently.
+
+4. **Access the App:**
+   - Citizen Portal: `http://localhost:3000`
+   - Admin Portal: `http://localhost:3000/admin` (Default Super Admin login: `superadmin` / `admin@1234`)
