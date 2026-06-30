@@ -135,20 +135,21 @@ const AGENCY_BY_CATEGORY = {
 };
 
 const DEPRECATED_GEMINI_MODELS = new Map([
-  ["gemini-1.5-flash", "gemini-2.0-flash"],
-  ["gemini-1.5-flash-latest", "gemini-2.0-flash"],
-  ["gemini-1.5-pro", "gemini-2.0-flash"],
-  ["gemini-1.5-pro-latest", "gemini-2.0-flash"],
-  ["gemini-pro", "gemini-2.0-flash"],
-  ["gemini-pro-vision", "gemini-2.0-flash"]
+  ["gemini-1.5-flash", "gemini-2.5-flash"],
+  ["gemini-1.5-flash-latest", "gemini-2.5-flash"],
+  ["gemini-1.5-pro", "gemini-2.5-flash"],
+  ["gemini-1.5-pro-latest", "gemini-2.5-flash"],
+  ["gemini-pro", "gemini-2.5-flash"],
+  ["gemini-pro-vision", "gemini-2.5-flash"],
+  ["gemini-2.0-flash", "gemini-2.5-flash"]
 ]);
 
 function normalizeGeminiModel(model) {
   const normalized = String(model || "").trim();
-  return DEPRECATED_GEMINI_MODELS.get(normalized) || normalized || "gemini-2.0-flash";
+  return DEPRECATED_GEMINI_MODELS.get(normalized) || normalized || "gemini-2.5-flash";
 }
 
-const GEMINI_MODEL = normalizeGeminiModel(process.env.GEMINI_MODEL || process.env.GOOGLE_GENAI_MODEL || "gemini-2.0-flash");
+const GEMINI_MODEL = normalizeGeminiModel(process.env.GEMINI_MODEL || process.env.GOOGLE_GENAI_MODEL || "gemini-2.5-flash");
 
 function getMediaTypeFromMime(mimeType) {
   if (!mimeType) return "image";
@@ -178,7 +179,16 @@ let geminiStatus = {
 function getGeminiApiKey() {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
   if (!key || key === "MY_GEMINI_API_KEY" || key.includes("YOUR_")) return "";
-  return key.trim();
+  const trimmed = key.trim();
+  // Accept both classic AIza keys AND newer AQ. keys from Google AI Studio (used with @google/genai v2+)
+  if (trimmed.length < 20) {
+    console.error(
+      `[Gemini] ⚠️  API key in .env looks too short (${trimmed.length} chars).\n` +
+      `  Get a valid key at: https://aistudio.google.com/app/apikey`
+    );
+    return "";
+  }
+  return trimmed;
 }
 
 function getGeminiClient() {
@@ -196,16 +206,41 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function extractRetryDelaySeconds(error) {
+  // Google returns retryDelay in error.errorDetails or error.response JSON
+  try {
+    const details = error?.errorDetails || error?.response?.data?.error?.details || [];
+    for (const d of details) {
+      if (d["@type"] === "type.googleapis.com/google.rpc.RetryInfo" && d.retryDelay) {
+        const match = String(d.retryDelay).match(/(\d+(\.\d+)?)s/);
+        if (match) return Math.ceil(Number(match[1]));
+        // Fallback: parse as seconds
+        const val = Number(d.retryDelay);
+        if (val > 0) return Math.ceil(val);
+      }
+    }
+  } catch (_) {}
+  // Also check raw message for "retry in Xs" pattern
+  try {
+    const msg = String(error?.message || "");
+    const match = msg.match(/retry in (\d+(\.\d+)?)s/i);
+    if (match) return Math.ceil(Number(match[1]));
+  } catch (_) {}
+  return null;
+}
+
 function classifyGeminiError(error) {
   const status = Number(error?.status || error?.code || error?.response?.status || 0);
   const message = String(error?.message || "");
   const upperMessage = message.toUpperCase();
 
   if (status === 429 || upperMessage.includes("RESOURCE_EXHAUSTED") || upperMessage.includes("RATE LIMIT")) {
-    return { code: 429, status: "RATE_LIMITED", retryable: false, userMessage: AI_UNAVAILABLE_MESSAGE };
+    const retryAfter = extractRetryDelaySeconds(error);
+    return { code: 429, status: "RATE_LIMITED", retryable: true, retryAfter, userMessage: AI_UNAVAILABLE_MESSAGE };
   }
   if (status === 503 || upperMessage.includes("UNAVAILABLE") || upperMessage.includes("HIGH DEMAND")) {
-    return { code: 503, status: "UNAVAILABLE", retryable: true, userMessage: AI_UNAVAILABLE_MESSAGE };
+    const retryAfter = extractRetryDelaySeconds(error);
+    return { code: 503, status: "UNAVAILABLE", retryable: true, retryAfter, userMessage: AI_UNAVAILABLE_MESSAGE };
   }
   if (error?.name === "AbortError" || error?.code === "ETIMEDOUT" || upperMessage.includes("TIMEOUT") || upperMessage.includes("TIMED OUT")) {
     return { code: "TIMEOUT", status: "TIMEOUT", retryable: false, userMessage: AI_UNAVAILABLE_MESSAGE };
@@ -281,10 +316,12 @@ async function generateGeminiContentWithRetry(client, params) {
         message: error?.message
       });
 
-      if (!(classified.status === "UNAVAILABLE" && attempt < GEMINI_RETRY_DELAYS_MS.length)) {
+      if (!classified.retryable || attempt >= GEMINI_RETRY_DELAYS_MS.length) {
         break;
       }
-      await wait(GEMINI_RETRY_DELAYS_MS[attempt]);
+      const delayMs = (classified.retryAfter ? classified.retryAfter * 1000 : GEMINI_RETRY_DELAYS_MS[attempt]);
+      console.log(`Gemini ${classified.status}, retrying in ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1}/${GEMINI_RETRY_DELAYS_MS.length})`);
+      await wait(delayMs);
       attempt += 1;
     }
   }
@@ -420,6 +457,32 @@ function uploadMediaHandler(req, res) {
 
 app.post("/api/upload-media", uploadMediaHandler);
 app.post("/api/upload-photo", uploadMediaHandler); // kept for backward compatibility
+
+// Detailed diagnostics endpoint — tells the admin exactly what is wrong with AI config.
+app.get("/api/ai-diagnostics", (req, res) => {
+  const rawKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENAI_API_KEY || "";
+  const keyPresent = !!rawKey && rawKey !== "MY_GEMINI_API_KEY" && !rawKey.includes("YOUR_");
+  // Accept both classic AIza keys and newer AQ. keys (Google AI Studio v2 SDK format)
+  const keyValidFormat = keyPresent && rawKey.trim().length >= 20;
+  const configured = keyValidFormat;
+  let issue = null;
+  if (!keyPresent) {
+    issue = "GEMINI_API_KEY is missing or empty in .env";
+  } else if (rawKey.trim().length < 20) {
+    issue = "Key is too short to be a valid Gemini API key";
+  }
+  res.json({
+    configured,
+    model: GEMINI_MODEL,
+    keyPresent,
+    keyValidFormat,
+    keyPrefix: keyPresent ? rawKey.trim().substring(0, 8) + "..." : "(none)",
+    issue,
+    howToFix: issue ? "Get a free Gemini API key at https://aistudio.google.com/app/apikey and update GEMINI_API_KEY in your .env file, then restart the server." : null,
+    lastErrorCode: geminiStatus.lastErrorCode,
+    connected: geminiStatus.connected
+  });
+});
 
 app.get("/api/ai-status", async (req, res) => {
   const client = getGeminiClient();
@@ -661,7 +724,9 @@ app.post("/api/reports", async (req, res) => {
     const now = Date.now();
     let category = userCategory || "Roads & Potholes";
     let severity = "Medium";
-    let description = userDescription || "Civic report submitted by citizen.";
+    const citizenDescription = userDescription?.trim() || "Civic report submitted by citizen.";
+    let description = citizenDescription;
+    let aiAssessment = null;
     let confidence = 0.8;
     let fakeConfidence = 0;
     let aiStatus = "not_requested";
@@ -720,7 +785,8 @@ app.post("/api/reports", async (req, res) => {
           }
           category = classification.category;
           severity = classification.severity;
-          description = classification.description;
+          aiAssessment = classification.description;
+          description = citizenDescription;
           suggestedAgency = classification.suggested_agency;
           confidence = classification.confidence;
           fakeConfidence = classification.fakeConfidence;
@@ -756,7 +822,7 @@ app.post("/api/reports", async (req, res) => {
         aiStatus = client ? "temporarily_unavailable" : "not_configured";
         aiMessage = AI_UNAVAILABLE_MESSAGE;
       }
-      description = userDescription || description;
+      description = citizenDescription;
       const textToAnalyze = `${userCategory || ""} ${userDescription || ""}`.toLowerCase();
       if (textToAnalyze.includes("light") || textToAnalyze.includes("dark") || textToAnalyze.includes("flicker") || textToAnalyze.includes("electricity")) {
         category = "Street Lights";
@@ -791,7 +857,7 @@ app.post("/api/reports", async (req, res) => {
       }
     }
     
-    const reportId = `report_${Date.now()}`;
+    const reportId = `report_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const newReport = new Report({
       id: reportId,
       userId,
@@ -799,6 +865,7 @@ app.post("/api/reports", async (req, res) => {
       photoUrl: photoUrl || "https://images.unsplash.com/photo-1599740831419-b5ce97c1b7c6?auto=format&fit=crop&w=600&q=80",
       mediaType,
       mediaList: finalMediaList,
+      userDescription: citizenDescription,
       lat,
       lng,
       geohash: encodeGeohash(lat, lng),
@@ -813,12 +880,14 @@ app.post("/api/reports", async (req, res) => {
       newReport.issueId = matchedIssue.id;
       issueId = matchedIssue.id;
     } else {
-      issueId = `issue_${Date.now()}`;
+      issueId = `issue_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const newIssue = new Issue({
         id: issueId,
         category,
         severity,
         description,
+        originalDescription: citizenDescription,
+        aiAssessment,
         lat,
         lng,
         geohash: encodeGeohash(lat, lng),
@@ -835,7 +904,8 @@ app.post("/api/reports", async (req, res) => {
         aiProvider: aiAnalyzed ? "gemini" : "heuristic",
         aiStatus,
         aiMessage,
-        confidence
+        confidence,
+        reportedBy: userId || null
       });
       await newIssue.save();
       newReport.issueId = issueId;
@@ -859,7 +929,8 @@ app.post("/api/reports", async (req, res) => {
       aiAnalyzed,
       aiProvider: aiAnalyzed ? "gemini" : "heuristic",
       aiStatus,
-      aiMessage
+      aiMessage,
+      aiAssessment
     });
   } catch (err) {
     console.error("Report submission failed:", err);
@@ -1125,7 +1196,7 @@ app.post("/api/whatsapp/simulate", async (req, res) => {
     await waLog.save();
 
     // Upsert User
-    const userId = `wa_user_${sender.replace(/\\D/g, '')}`;
+    const userId = `wa_user_${sender.replace(/\D/g, '')}`;
     let user = await User.findOne({ id: userId });
     if (!user && citizenName) {
       user = new User({

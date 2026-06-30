@@ -4,7 +4,7 @@ import fs from "fs";
 import { Issue, Report, Verification, User, Notification } from "../../../models.js";
 import { Worker } from "../models.js";
 import { AuditLog } from "../models.js";
-import { requireAdmin, requireWardAccess } from "../auth.js";
+import { requireAdmin, requireWardAccess, requireSuperAdmin } from "../auth.js";
 import { computeSlaDeadline, evaluateSla } from "../services/sla.js";
 import { suggestWorkerForIssue } from "../services/workerSuggestion.js";
 import { validateWorkerProof, saveProofMedia } from "../services/workerProof.js";
@@ -111,7 +111,31 @@ router.patch("/issues/:id/status", requireAdmin, async (req, res) => {
 
     const previousStatus = issue.adminStatus || "pending_review";
     issue.adminStatus = adminStatus;
-    if (adminNotes !== undefined) issue.adminNotes = adminNotes;
+
+    // §AI — Auto-generate admin notes via Gemini when status changes.
+    // If the admin also typed something, that takes priority; otherwise use the AI draft.
+    let finalNotes = adminNotes !== undefined ? adminNotes : (issue.adminNotes || "");
+    let aiGeneratedNotes = null;
+    if (previousStatus !== adminStatus) {
+      try {
+        const worker = issue.assignedWorkerId
+          ? await Worker.findOne({ id: issue.assignedWorkerId }).lean()
+          : null;
+        const generated = await generateNotificationMessage(issue, adminStatus, finalNotes, worker);
+        if (generated) {
+          aiGeneratedNotes = generated;
+          // Only overwrite notes with AI draft if admin didn't explicitly provide new text
+          if (adminNotes === undefined || adminNotes === null || adminNotes === "") {
+            finalNotes = generated;
+          }
+        }
+      } catch (e) {
+        // Non-fatal: AI note generation failed, continue without it
+        console.error("[AI notes] generation failed:", e.message);
+      }
+    }
+    issue.adminNotes = finalNotes;
+    issue.aiGeneratedNotes = aiGeneratedNotes; // store the AI draft separately
 
     // §7.4 — marking fake: hide from public map + reverse reporter's points.
     if (adminStatus === "fake" && previousStatus !== "fake") {
@@ -131,28 +155,112 @@ router.patch("/issues/:id/status", requireAdmin, async (req, res) => {
       action: "status_change",
       fromValue: previousStatus,
       toValue: adminStatus,
-      meta: adminNotes ? { adminNotes } : {}
+      meta: finalNotes ? { adminNotes: finalNotes } : {}
     });
 
-    if (previousStatus !== adminStatus) {
-      const message = await generateNotificationMessage(issue, adminStatus, adminNotes, null);
-      if (message && issue.reportedBy) {
-        await Notification.create({
-          id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          userId: issue.reportedBy,
-          issueId: issue.id,
-          title: `Issue Status Update: ${adminStatus.toUpperCase()}`,
-          message: message,
-          type: adminStatus
-        });
-      }
+    // Send Gemini-generated notification to only the issue raiser
+    if (previousStatus !== adminStatus && aiGeneratedNotes && issue.reportedBy) {
+      await Notification.create({
+        id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        userId: issue.reportedBy,
+        issueId: issue.id,
+        title: `Issue Status Update: ${adminStatus.replace(/_/g, " ").toUpperCase()}`,
+        message: aiGeneratedNotes,
+        type: adminStatus
+      });
     }
 
-    res.json({ success: true, issue: await attachFirstPhoto(issue.toObject()) });
+    res.json({
+      success: true,
+      issue: await attachFirstPhoto(issue.toObject()),
+      aiGeneratedNotes
+    });
   } catch (err) {
     res.status(500).json({ error: "Failed to update issue status." });
   }
 });
+
+// ---- POST /issues/:id/generate-notes — on-demand AI note regeneration ------
+router.post("/issues/:id/generate-notes", requireAdmin, async (req, res) => {
+  try {
+    const issue = await loadIssueForWard(req, res, req.params.id);
+    if (!issue) return;
+    const worker = issue.assignedWorkerId
+      ? await Worker.findOne({ id: issue.assignedWorkerId }).lean()
+      : null;
+    const generated = await generateNotificationMessage(
+      issue, issue.adminStatus || "pending_review", issue.adminNotes, worker
+    );
+    if (!generated) {
+      return res.status(503).json({ error: "AI note generation is currently unavailable. Please check your Gemini API key." });
+    }
+    // Save the AI draft as adminNotes
+    issue.adminNotes = generated;
+    issue.aiGeneratedNotes = generated;
+    await issue.save();
+    res.json({ success: true, adminNotes: generated });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to generate AI notes." });
+  }
+});
+
+// ---- POST /issues/:id/send-note — manually push admin note to citizen notif centre ---
+router.post("/issues/:id/send-note", requireAdmin, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: "Message cannot be empty." });
+    }
+    const issue = await loadIssueForWard(req, res, req.params.id);
+    if (!issue) return;
+
+    // Always save the note regardless of whether we can notify
+    issue.adminNotes = message.trim();
+    await issue.save();
+
+    // Resolve the recipient — try issue.reportedBy first, then fall back to
+    // the first report's userId (handles older issues that predate the field).
+    let recipientId = issue.reportedBy || null;
+    if (!recipientId) {
+      const firstReport = await Report.findOne({ issueId: issue.id }).sort({ createdAt: 1 }).lean();
+      recipientId = firstReport?.userId || null;
+      // Back-fill reportedBy so future sends work without the fallback
+      if (recipientId) {
+        issue.reportedBy = recipientId;
+        await issue.save();
+      }
+    }
+
+    if (!recipientId) {
+      // Note saved, but no citizen to notify
+      return res.json({ success: true, notified: false, warning: "Note saved, but no citizen account found to notify." });
+    }
+
+    // Push to notification centre of only the issue raiser
+    await Notification.create({
+      id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      userId: recipientId,
+      issueId: issue.id,
+      title: `Update on your reported issue`,
+      message: message.trim(),
+      type: issue.adminStatus || "update"
+    });
+
+    await appendAuditEntry({
+      issueId: issue.id,
+      actorId: req.admin.id,
+      actorType: "admin",
+      action: "note_sent",
+      toValue: "notified",
+      meta: { message: message.trim().substring(0, 120) }
+    });
+
+    res.json({ success: true, notified: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send note to citizen." });
+  }
+});
+
 
 // ---- POST /issues/:id/assign — assign a worker (§4) -----------------------
 router.post("/issues/:id/assign", requireAdmin, async (req, res) => {
@@ -174,6 +282,7 @@ router.post("/issues/:id/assign", requireAdmin, async (req, res) => {
     }
 
     const now = Date.now();
+    const previousWorkerId = issue.assignedWorkerId || null;
     issue.assignedWorkerId = worker.id;
     issue.assignedByAdminId = req.admin.id;
     issue.assignedAt = now;
@@ -190,7 +299,7 @@ router.post("/issues/:id/assign", requireAdmin, async (req, res) => {
       actorId: req.admin.id,
       actorType: "admin",
       action: "assign",
-      fromValue: issue.assignedWorkerId || null,
+      fromValue: previousWorkerId,
       toValue: worker.id,
       meta: { workerName: worker.name, specialization: worker.specialization, slaDeadline: issue.slaDeadline }
     });
@@ -297,6 +406,36 @@ router.post("/issues/:id/complete", requireAdmin, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "Failed to complete issue." });
+  }
+});
+
+// ---- DELETE /issues/:id — permanent delete, super admin only ---------------
+router.delete("/issues/:id", requireAdmin, requireSuperAdmin, async (req, res) => {
+  try {
+    const issue = await Issue.findOne({ id: req.params.id });
+    if (!issue) return res.status(404).json({ error: "Issue not found." });
+
+    // Free assigned worker if any
+    if (issue.assignedWorkerId) {
+      await Worker.updateOne(
+        { id: issue.assignedWorkerId },
+        { $set: { status: "available", activeIssueId: null } }
+      );
+    }
+
+    // Delete all related documents
+    await Promise.all([
+      Report.deleteMany({ issueId: issue.id }),
+      Verification.deleteMany({ issueId: issue.id }),
+      Notification.deleteMany({ issueId: issue.id }),
+      AuditLog.deleteMany({ issueId: issue.id })
+    ]);
+
+    await Issue.deleteOne({ id: issue.id });
+
+    res.json({ success: true, deletedId: issue.id });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete issue." });
   }
 });
 

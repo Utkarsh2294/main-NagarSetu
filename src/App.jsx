@@ -54,21 +54,24 @@ export default function App() {
 
   
   useEffect(() => {
-    if (currentUser) {
-      const syncUser = async () => {
-        try {
-          const res = await fetch(`/api/user/${currentUser.id}`);
-          if (res.ok) {
-            const data = await res.json();
-            setCurrentUser(data);
-          }
-        } catch (e) {
-          console.error(e);
+    const syncUser = async (id) => {
+      try {
+        const res = await fetch(`/api/user/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentUser(data);
         }
-      };
-      // Only sync once on mount if we have a user (from cache/storage usually, though here it's state)
-      // Removed the aggressive 10s polling interval to save server resources.
-      syncUser();
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    if (currentUser?.id) {
+      syncUser(currentUser.id);
+    } else {
+      const citizenId = localStorage.getItem("citizen_id");
+      if (citizenId) {
+        syncUser(citizenId);
+      }
     }
   }, [currentUser?.id]);
   const handleLoginSuccess = async (credential) => {

@@ -13,8 +13,9 @@ import auditRoutes from "./routes/audit.routes.js";
 import { getIssueAuditTrail } from "./services/auditChain.js";
 
 export function configureMediaClassifier(deps) {
-  // Forward to the shared classifier service so it can reuse server.js's Gemini stack.
-  import("./services/classifyMedia.js").then(({ configureMediaClassifier }) => configureMediaClassifier(deps));
+  import("./services/classifyMedia.js")
+    .then(({ configureMediaClassifier }) => configureMediaClassifier(deps))
+    .catch(err => console.error("[admin] Failed to configure media classifier:", err.message));
 }
 
 // Public read-only audit trail — NO admin auth (§8.5 transparency feature).

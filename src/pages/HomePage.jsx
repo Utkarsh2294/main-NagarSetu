@@ -1,9 +1,33 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { ShieldCheck, MapPin, Search, CheckCircle2, AlertTriangle, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
 import { useLanguage } from "../i18n/LanguageContext";
 export default function HomePage() {
+  const navigate = useNavigate();
   const { t } = useLanguage();
+  const [stats, setStats] = useState({
+    reports: "0",
+    resolved: "0",
+    agencies: "0",
+    cities: "0"
+  });
+
+  useEffect(() => {
+    fetch("/api/transparency")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setStats({
+            reports: data.totalReports?.toString() || "0",
+            resolved: data.resolvedIssues?.toString() || "0",
+            agencies: data.agencies?.length?.toString() || "0",
+            cities: "1" // App is currently single city focused in demo
+          });
+        }
+      })
+      .catch(console.error);
+  }, []);
   return <div className="flex flex-col min-h-screen">
       {
     /* Hero Section */
@@ -61,10 +85,10 @@ export default function HomePage() {
         <div className="container mx-auto px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8">
             {[
-    { count: "0", label: t("home.stats_reports") },
-    { count: "0", label: t("home.stats_resolved") },
-    { count: "0", label: t("home.stats_agencies") },
-    { count: "0", label: t("home.stats_cities") }
+    { count: stats.reports, label: t("home.stats_reports") },
+    { count: stats.resolved, label: t("home.stats_resolved") },
+    { count: stats.agencies, label: t("home.stats_agencies") },
+    { count: stats.cities, label: t("home.stats_cities") }
   ].map((stat, i) => <motion.div
     key={i}
     initial={{ opacity: 0, y: 20 }}

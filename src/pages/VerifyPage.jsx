@@ -205,11 +205,11 @@ export default function VerifyPage({ currentUser }) {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-inner h-full">
                            <h5 className="text-sm font-bold text-slate-300 mb-2 flex items-center gap-2"><User className="h-4 w-4 text-indigo-400"/> Message from Raiser</h5>
-                           <p className="text-slate-300 text-sm leading-relaxed">{issue.description || "No message provided."}</p>
+                           <p className="text-slate-300 text-sm leading-relaxed">{issue.originalDescription || issue.userDescription || (issue.aiStatus === "complete" && !issue.aiAssessment ? "No message provided." : issue.description) || "No message provided."}</p>
                         </div>
                         <div className="bg-indigo-900/30 p-4 rounded-xl border border-indigo-500/30 shadow-inner h-full">
                            <h5 className="text-sm font-bold text-indigo-300 mb-2 flex items-center gap-2"><Bot className="h-4 w-4"/> AI Assessment</h5>
-                           <p className="text-slate-300 text-sm leading-relaxed">{issue.aiAssessment || "AI Assessment is not available."}</p>
+                           <p className="text-slate-300 text-sm leading-relaxed">{issue.aiAssessment || (issue.aiStatus === "complete" ? issue.description : issue.aiMessage) || "AI assessment has not been run for this issue."}</p>
                         </div>
                       </div>
                     </div>

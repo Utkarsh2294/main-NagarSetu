@@ -105,7 +105,7 @@ export default function AboutPage() {
               <p className="text-slate-400 mb-6">Built with modern web technologies for scale, speed, and real-time responsiveness.</p>
             </div>
             <div className="md:w-2/3 grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {["React 19", "TypeScript", "Node.js/Express", "Tailwind CSS", "Leaflet Maps", "Gemini AI"].map((tech, i) => <div key={i} className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl">
+              {["React 19", "JavaScript", "Node.js/Express", "Tailwind CSS", "Leaflet Maps", "Gemini AI"].map((tech, i) => <div key={i} className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 p-3 rounded-xl">
                   <Code className="w-4 h-4 text-indigo-400" />
                   <span className="text-sm font-medium text-slate-300">{tech}</span>
                 </div>)}

@@ -10,8 +10,39 @@ import {
   AreaChart,
   Area
 } from "recharts";
-import { ShieldCheck, CheckCircle2, AlertTriangle, Building2, TrendingUp } from "lucide-react";
-export default function TransparencyDashboard({ metrics, loading }) {
+import { ShieldCheck, CheckCircle2, AlertTriangle, Building2, TrendingUp, MapPin, Clock, Eye } from "lucide-react";
+import { Link } from "react-router-dom";
+
+const STATUS_STYLE = {
+  reported: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  verified: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  agency_fixed: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  pending_fix_confirmation: "bg-purple-500/20 text-purple-400 border-purple-500/30 animate-pulse",
+  resolved: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+};
+
+const CATEGORY_ICON = {
+  "Roads & Potholes": "🛣️",
+  "Garbage & Sanitation": "🗑️",
+  "Street Lights": "💡",
+  "Sewage & Water Leak": "💧",
+  "Invalid / Non-civic": "❌"
+};
+
+function timeAgo(timestamp) {
+  if (!timestamp) return "";
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export default function TransparencyDashboard({ metrics, issues = [], loading }) {
   if (loading || !metrics) {
     return <div className="flex flex-col items-center justify-center py-20 text-slate-500 font-sans space-y-3">
         <div className="animate-spin h-8 w-8 border-4 border-indigo-600 border-t-transparent rounded-full" />
@@ -211,28 +242,115 @@ export default function TransparencyDashboard({ metrics, loading }) {
       {
     /* How it works educational section */
   }
-      <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700/50 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="space-y-1">
-          <div className="text-indigo-600 font-bold font-mono text-lg">01. REPORT</div>
-          <h4 className="font-semibold text-slate-800">Decentralized Intake</h4>
+          <div className="text-indigo-400 font-bold font-mono text-lg">01. REPORT</div>
+          <h4 className="font-semibold text-white">Decentralized Intake</h4>
           <p className="text-xs text-slate-500 leading-relaxed">
             Citizens report issues with real-time location and camera capture. Our server utilizes Gemini API to auto-classify and assign to correct ward agencies.
           </p>
         </div>
         <div className="space-y-1">
-          <div className="text-indigo-600 font-bold font-mono text-lg">02. VERIFY</div>
-          <h4 className="font-semibold text-slate-800">Double-Verification</h4>
+          <div className="text-indigo-400 font-bold font-mono text-lg">02. VERIFY</div>
+          <h4 className="font-semibold text-white">Double-Verification</h4>
           <p className="text-xs text-slate-500 leading-relaxed">
             Other local citizens within 500m must tap to verify that the report is real. Duplicate reports within 50m automatically collapse into a single issue cluster.
           </p>
         </div>
         <div className="space-y-1">
-          <div className="text-indigo-600 font-bold font-mono text-lg">03. AUDIT</div>
-          <h4 className="font-semibold text-slate-800">Citizens Vote the Fix</h4>
+          <div className="text-indigo-400 font-bold font-mono text-lg">03. AUDIT</div>
+          <h4 className="font-semibold text-white">Citizens Vote the Fix</h4>
           <p className="text-xs text-slate-500 leading-relaxed">
             When agencies mark fixed, prior citizen verifiers receive a re-vote alert. If even one citizen votes "Still Broken," the ticket reopens instantly.
           </p>
         </div>
+      </div>
+
+      {
+    /* Open Issues / Community Reported Issues Table */
+  }
+      <div className="glass-panel rounded-2xl p-6 shadow-lg border border-slate-800">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-slate-100 font-display flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-indigo-400" />
+              Community Reported Issues
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Recently raised civic issues by citizens in your area
+            </p>
+          </div>
+          <Link
+            to="/map"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            View on Map
+          </Link>
+        </div>
+
+        {issues.length === 0 ? (
+          <div className="text-center py-12 text-slate-400">
+            <MapPin className="h-10 w-10 mx-auto mb-3 text-slate-600" />
+            <p className="text-sm">No issues reported yet. Be the first to raise your voice!</p>
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+            {issues.map((issue) => {
+              const statusClass = STATUS_STYLE[issue.status] || STATUS_STYLE.reported;
+              return (
+                <div
+                  key={issue.id}
+                  className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex items-center gap-3 text-lg shrink-0">
+                      <span>{CATEGORY_ICON[issue.category] || "📌"}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                          {issue.category}
+                        </span>
+                        <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${statusClass}`}>
+                          {issue.status.replace(/_/g, " ")}
+                        </span>
+                        {issue.severity && (
+                          <span className={`text-[10px] font-bold ${
+                            issue.severity === "High" ? "text-rose-400" :
+                            issue.severity === "Medium" ? "text-amber-400" : "text-slate-400"
+                          }`}>
+                            {issue.severity} Severity
+                          </span>
+                        )}
+                        {issue.reportCount > 1 && (
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            {issue.reportCount} reports
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-200 leading-relaxed line-clamp-2">
+                        "{issue.originalDescription || issue.userDescription || issue.description || "No description"}"
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500 shrink-0">
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>{timeAgo(issue.createdAt)}</span>
+                      </div>
+                      {issue.lat && issue.lng && (
+                        <div className="flex items-center gap-1 font-mono">
+                          <MapPin className="h-3 w-3" />
+                          <span>{issue.lat.toFixed(3)}, {issue.lng.toFixed(3)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>;
 }

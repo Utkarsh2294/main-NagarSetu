@@ -5,12 +5,12 @@ import { useLanguage } from "../i18n/LanguageContext";
 
 const AI_STATUS_COPY = {
   idle: "",
-  analyzing: "Analyzing image...",
-  complete: "Analysis complete",
-  temporarily_unavailable: "AI service temporarily unavailable",
-  rate_limited: "AI service temporarily unavailable",
-  not_configured: "AI service temporarily unavailable",
-  failed: "AI service temporarily unavailable"
+  analyzing: "🔍 Analyzing image with Gemini AI...",
+  complete: "✅ AI Analysis complete",
+  temporarily_unavailable: "⚠️ AI service temporarily unavailable — report submitted successfully",
+  rate_limited: "⚠️ AI rate limit reached — report submitted without AI analysis",
+  not_configured: "⚠️ Gemini AI is not configured — report submitted without AI analysis",
+  failed: "⚠️ AI service unavailable — report submitted successfully"
 };
 
 export default function MapPage({ currentUser, onLoginClick }) {
@@ -254,6 +254,21 @@ export default function MapPage({ currentUser, onLoginClick }) {
     return R * c;
   };
   const isWithinVerificationRange = selectedIssueDetail && userCoords ? getDistance(userCoords.lat, userCoords.lng, selectedIssueDetail.lat, selectedIssueDetail.lng) <= 500 : false;
+  const selectedIssueStoredCitizenDescription = selectedIssueDetail
+    ? selectedIssueDetail.originalDescription
+      || selectedIssueDetail.reports?.find((report) => report.userDescription)?.userDescription
+      || selectedIssueDetail.userDescription
+    : "";
+  const selectedIssueLegacyAiAssessment = selectedIssueDetail?.aiStatus === "complete" && !selectedIssueDetail?.aiAssessment
+    ? selectedIssueDetail.description
+    : "";
+  const selectedIssueCitizenDescription = selectedIssueStoredCitizenDescription
+    || (selectedIssueLegacyAiAssessment ? "No citizen message provided." : selectedIssueDetail?.description)
+    || "No description provided.";
+  const selectedIssueAiAssessment = selectedIssueDetail?.aiAssessment || selectedIssueLegacyAiAssessment || "";
+  const selectedIssueAiUnavailable = selectedIssueDetail
+    && selectedIssueDetail.aiStatus
+    && selectedIssueDetail.aiStatus !== "complete";
   return <div className="flex flex-col h-screen pt-16">
       
       {
@@ -466,11 +481,22 @@ export default function MapPage({ currentUser, onLoginClick }) {
                 </div>
 
                 <p className="text-slate-200 leading-relaxed text-sm bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                  "{selectedIssueDetail.description}"
+                  "{selectedIssueCitizenDescription}"
                 </p>
 
-                {selectedIssueDetail.aiMessage && selectedIssueDetail.aiStatus !== "complete" && <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs font-semibold text-amber-300">
-                    AI service temporarily unavailable
+                {selectedIssueAiAssessment && <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl p-3">
+                    <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-1">AI Assessment</div>
+                    <p className="text-xs leading-relaxed text-slate-200">{selectedIssueAiAssessment}</p>
+                  </div>}
+
+                {!selectedIssueAiAssessment && selectedIssueAiUnavailable && <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                      <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">AI Assessment Unavailable</span>
+                    </div>
+                    <p className="text-xs text-amber-200/80 leading-relaxed">
+                      {selectedIssueDetail.aiMessage || "Gemini AI could not analyse this image at submission time. The report has been saved and will be reviewed manually."}
+                    </p>
                   </div>}
 
                 <div className="grid grid-cols-2 gap-3">

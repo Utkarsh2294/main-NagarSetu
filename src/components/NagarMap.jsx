@@ -148,7 +148,7 @@ export default function NagarMap({
             <span>${catIcon}</span>
             <span class="font-semibold">${reportCount} reps</span>
           </div>
-          <div className="flex items-center justify-center h-8 w-8 rounded-full ${markerColor} ${pulseRing} text-white border-2 ${isSelected ? "border-white scale-125 z-50 ring-4 ring-indigo-400" : "border-slate-800 shadow-lg"} transition-transform duration-200">
+          <div class="flex items-center justify-center h-8 w-8 rounded-full ${markerColor} ${pulseRing} text-white border-2 ${isSelected ? "border-white scale-125 z-50 ring-4 ring-indigo-400" : "border-slate-800 shadow-lg"} transition-transform duration-200">
             ${statusIcon}
           </div>
         </div>

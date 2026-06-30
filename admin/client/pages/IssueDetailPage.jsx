@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, MapPin, CheckCircle2, AlertTriangle, Loader2, Sparkles, RefreshCw, Bell, Trash2 } from "lucide-react";
 import { adminApi } from "../api";
 import StatusChangeControl from "../components/StatusChangeControl";
 import SLABadge from "../components/SLABadge";
@@ -19,6 +19,12 @@ export default function IssueDetailPage() {
   const [showAssign, setShowAssign] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [address, setAddress] = useState("");
+  const [generatingNotes, setGeneratingNotes] = useState(false);
+  const [notifSent, setNotifSent] = useState(false);
+  const [sendingNote, setSendingNote] = useState(false);
+  const [noteSentConfirm, setNoteSentConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [notesDirty, setNotesDirty] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -50,9 +56,22 @@ export default function IssueDetailPage() {
   const handleStatus = async (adminStatus) => {
     setSaving(true);
     setError(null);
+    setNotifSent(false);
     try {
-      await adminApi.setStatus(id, adminStatus);
-      await load();
+      const result = await adminApi.setStatus(id, adminStatus);
+      // Immediately surface the AI-generated notes in the UI
+      if (result.aiGeneratedNotes) {
+        setIssue(prev => ({
+          ...prev,
+          adminNotes: result.aiGeneratedNotes,
+          aiGeneratedNotes: result.aiGeneratedNotes,
+          adminStatus
+        }));
+        setNotifSent(true);
+        setTimeout(() => setNotifSent(false), 5000);
+      } else {
+        await load();
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -60,9 +79,59 @@ export default function IssueDetailPage() {
     }
   };
 
+  const handleGenerateNotes = async () => {
+    setGeneratingNotes(true);
+    setError(null);
+    try {
+      const result = await adminApi.generateNotes(id);
+      if (result.adminNotes) {
+        setIssue(prev => ({ ...prev, adminNotes: result.adminNotes, aiGeneratedNotes: result.adminNotes }));
+      }
+    } catch (e) {
+      setError(e.message || "Failed to generate AI notes.");
+    } finally {
+      setGeneratingNotes(false);
+    }
+  };
+
+  const handleSendNote = async () => {
+    if (!issue.adminNotes?.trim()) return;
+    setSendingNote(true);
+    setError(null);
+    try {
+      const result = await adminApi.sendNote(id, issue.adminNotes);
+      if (result.warning) {
+        // Note saved but no citizen account found — show as a soft warning not a hard error
+        setError(`Note saved. ${result.warning}`);
+      } else {
+        setNoteSentConfirm(true);
+        setTimeout(() => setNoteSentConfirm(false), 4000);
+      }
+    } catch (e) {
+      setError(e.message || "Failed to send note to citizen.");
+    } finally {
+      setSendingNote(false);
+    }
+  };
+
   const handleComplete = async (payload) => {
     await adminApi.complete(id, payload);
     await load();
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(
+      `⚠️ Permanently delete this issue?\n\nThis will remove the issue, all reports, verifications, notifications and audit logs — this cannot be undone.\n\nClick OK to confirm.`
+    )) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await adminApi.deleteIssue(id);
+      navigate("/admin/dashboard");
+    } catch (e) {
+      setError(e.message || "Failed to delete issue.");
+      setDeleting(false);
+    }
   };
 
   const handleAssigned = async () => {
@@ -75,6 +144,15 @@ export default function IssueDetailPage() {
   if (!issue) return <div className="container mx-auto px-6 py-12 text-slate-400">Issue not found.</div>;
 
   const sevColor = issue.severity === "High" ? "text-rose-400" : issue.severity === "Medium" ? "text-amber-400" : "text-slate-400";
+  const storedCitizenDescription = issue.originalDescription
+    || issue.reports?.find((report) => report.userDescription)?.userDescription
+    || issue.userDescription;
+  const legacyAiAssessment = issue.aiStatus === "complete" && !issue.aiAssessment ? issue.description : "";
+  const citizenDescription = storedCitizenDescription
+    || (legacyAiAssessment ? "No citizen message provided." : issue.description)
+    || "No description provided.";
+  const aiAssessment = issue.aiAssessment || legacyAiAssessment || "";
+  const aiUnavailable = issue.aiStatus && issue.aiStatus !== "complete";
 
   return <div className="container mx-auto px-6 max-w-5xl py-8">
     {/* Header */}
@@ -100,6 +178,15 @@ export default function IssueDetailPage() {
             <Sparkles className="h-3 w-3" /> AI: {issue.suggestedWorker.name}
           </span>
         )}
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 text-xs font-bold transition-all disabled:opacity-50"
+          title="Permanently delete this issue (super admin only)"
+        >
+          {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          {deleting ? "Deleting..." : "Delete Issue"}
+        </button>
       </div>
     </div>
 
@@ -147,6 +234,22 @@ export default function IssueDetailPage() {
                 <MapPin className="h-3 w-3" /> View on Map
               </a>
             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h4 className="font-bold text-white mb-2">Citizen Message</h4>
+            <p className="text-sm leading-relaxed text-slate-300">{citizenDescription}</p>
+          </div>
+          <div className={`border rounded-2xl p-5 ${aiAssessment ? "bg-indigo-500/10 border-indigo-500/30" : aiUnavailable ? "bg-amber-500/10 border-amber-500/30" : "bg-slate-900 border-slate-800"}`}>
+            <h4 className={`font-bold mb-2 flex items-center gap-2 ${aiAssessment ? "text-indigo-300" : aiUnavailable ? "text-amber-300" : "text-white"}`}>
+              <Sparkles className="h-4 w-4" />
+              AI Assessment
+            </h4>
+            <p className={`text-sm leading-relaxed ${aiAssessment ? "text-slate-200" : aiUnavailable ? "text-amber-200" : "text-slate-400"}`}>
+              {aiAssessment || (aiUnavailable ? issue.aiMessage || "AI analysis is temporarily unavailable." : "AI assessment has not been run for this issue.")}
+            </p>
           </div>
         </div>
 
@@ -212,16 +315,85 @@ export default function IssueDetailPage() {
 
         {/* Admin notes */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-          <h4 className="font-bold text-white mb-3">Admin Notes</h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-bold text-white flex items-center gap-2">
+              Admin Notes
+              {issue.aiGeneratedNotes && issue.adminNotes === issue.aiGeneratedNotes && (
+                <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-500/15 text-indigo-300 px-2 py-0.5 rounded-full font-bold border border-indigo-500/30">
+                  <Sparkles className="h-2.5 w-2.5" /> AI Generated
+                </span>
+              )}
+            </h4>
+            <button
+              onClick={handleGenerateNotes}
+              disabled={generatingNotes}
+              title="Re-generate AI notes for current triage status"
+              className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 font-semibold transition-colors disabled:opacity-50"
+            >
+              {generatingNotes
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCw className="h-3 w-3" />}
+              {generatingNotes ? "Generating..." : "✨ Regenerate"}
+            </button>
+          </div>
+
+          {generatingNotes && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-3 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Gemini is writing notes based on the current triage status...
+            </div>
+          )}
+
+          {notifSent && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+              <Bell className="h-3.5 w-3.5" />
+              AI notes written and notification sent to the issue raiser.
+            </div>
+          )}
+
           <textarea
             value={issue.adminNotes || ""}
-            onChange={(e) => setIssue({ ...issue, adminNotes: e.target.value })}
-            onBlur={() => adminApi.setStatus(id, issue.adminStatus, issue.adminNotes)}
-            rows={3}
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 resize-none"
-            placeholder="Internal notes about this issue…"
+            onChange={(e) => {
+              setIssue({ ...issue, adminNotes: e.target.value, aiGeneratedNotes: issue.aiGeneratedNotes });
+              setNotesDirty(true);
+            }}
+            onBlur={() => {
+              if (notesDirty) {
+                adminApi.setStatus(id, issue.adminStatus, issue.adminNotes).catch(console.error);
+                setNotesDirty(false);
+              }
+            }}
+            rows={4}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500 resize-none transition-colors"
+            placeholder="Gemini will auto-write notes when you change the triage status. You can also edit them manually here."
           />
+
+          {/* Send button */}
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[10px] text-slate-500">
+              Notes are auto-generated by Gemini on status change. You can edit, then manually send.
+            </p>
+            <button
+              onClick={handleSendNote}
+              disabled={sendingNote || !issue.adminNotes?.trim()}
+              title="Send this note to the citizen's notification centre"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs font-bold transition-all shadow-lg shadow-indigo-600/20 shrink-0 ml-3"
+            >
+              {sendingNote
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Bell className="h-3.5 w-3.5" />}
+              {sendingNote ? "Sending..." : "Send to Citizen"}
+            </button>
+          </div>
+
+          {noteSentConfirm && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2 animate-pulse">
+              <Bell className="h-3.5 w-3.5 shrink-0" />
+              Note sent to citizen's notification centre successfully!
+            </div>
+          )}
         </div>
+
 
         {/* Assign worker */}
         {["pending_review", "assigned"].includes(issue.adminStatus) && (

@@ -24,8 +24,7 @@ const WorkerSchema = new mongoose.Schema({
   activeIssueId: { type: String, default: null },
   completedCount: { type: Number, default: 0 }, // worker leaderboard (§8.4)
   avgResolutionHours: { type: Number, default: 0 }, // AI assignment (§8.2)
-  approvedRate: { type: Number, default: 0 }, // citizen-approval rate on proof photos (§8.4)
-  createdAt: { type: Number, default: Date.now }
+  approvedRate: { type: Number, default: 0 } // citizen-approval rate on proof photos (§8.4)
 }, { strict: false, timestamps: true });
 
 export const Worker = mongoose.model("Worker", WorkerSchema);

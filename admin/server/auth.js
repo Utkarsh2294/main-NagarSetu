@@ -52,6 +52,9 @@ export function requireWardAccess(getIssueWard) {
 }
 
 export function requireSuperAdmin(req, res, next) {
+  if (!req.admin || req.admin.role !== "super_admin") {
+    return res.status(403).json({ error: "Super admin access required." });
+  }
   next();
 }
 

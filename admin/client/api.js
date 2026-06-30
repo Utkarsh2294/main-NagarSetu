@@ -83,5 +83,8 @@ export const adminApi = {
   suggestWorker: (issueId) => adminFetch(`/api/admin/workers/suggest?issueId=${issueId}`),
   workerLeaderboard: () => adminFetch("/api/admin/workers/leaderboard"),
   analytics: () => adminFetch("/api/admin/analytics"),
-  audit: (id) => adminFetch(`/api/admin/issues/${id}/audit`)
+  audit: (id) => adminFetch(`/api/admin/issues/${id}/audit`),
+  generateNotes: (id) => adminFetch(`/api/admin/issues/${id}/generate-notes`, { method: "POST" }),
+  sendNote: (id, message) => adminFetch(`/api/admin/issues/${id}/send-note`, { method: "POST", body: { message } }),
+  deleteIssue: (id) => adminFetch(`/api/admin/issues/${id}`, { method: "DELETE" })
 };

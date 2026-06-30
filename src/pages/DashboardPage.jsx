@@ -4,21 +4,27 @@ import { useLanguage } from "../i18n/LanguageContext";
 export default function DashboardPage() {
   const { t } = useLanguage();
   const [metrics, setMetrics] = useState(null);
+  const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    const fetchMetrics = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch("/api/transparency");
-        const data = await res.json();
-        setMetrics(data);
+        const [metricsRes, issuesRes] = await Promise.all([
+          fetch("/api/transparency"),
+          fetch("/api/issues")
+        ]);
+        const metricsData = await metricsRes.json();
+        const issuesData = await issuesRes.json();
+        setMetrics(metricsData);
+        setIssues(issuesData);
       } catch (e) {
-        console.error("Failed to fetch dashboard metrics", e);
+        console.error("Failed to fetch dashboard data", e);
       } finally {
         setLoading(false);
       }
     };
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 3e4);
+    fetchData();
+    const interval = setInterval(fetchData, 3e4);
     return () => clearInterval(interval);
   }, []);
   return <div className="pt-32 pb-20 min-h-screen">
@@ -27,8 +33,8 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold text-white font-display">{t("dashboard.title")}</h1>
           <p className="text-slate-400 mt-2">{t("dashboard.subtitle")}</p>
         </div>
-        
-        <TransparencyDashboard metrics={metrics} loading={loading} />
+
+        <TransparencyDashboard metrics={metrics} issues={issues} loading={loading} />
       </div>
     </div>;
 }
